@@ -1,0 +1,28 @@
+{
+  "scan_settings": {
+    "deep_scan": true,
+    "check_system_files": true,
+    "check_registry": true,
+    "check_dns_cache": true,
+    "timeout_seconds": 30
+  },
+  "threat_signatures": {
+    "high_risk_processes": [
+      "mimikatz.exe",
+      "psexec.exe",
+      "nmap.exe"
+    ],
+    "suspicious_extensions": [
+      ".exe",
+      ".bat",
+      ".vbs",
+      ".ps1",
+      ".scr"
+    ]
+  },
+  "network_settings": {
+    "check_external_connections": true,
+    "check_uncommon_ports": true,
+    "max_connections_to_analyze": 1000
+  }
+}

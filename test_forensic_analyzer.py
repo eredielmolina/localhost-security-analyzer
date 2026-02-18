@@ -350,6 +350,55 @@ class TestAnalyzeApplicationsForensic(unittest.TestCase):
         self.assertTrue(any('temporal' in r for r in app['risk_assessment']['reasons']))
 
 
+class TestDetectSuspiciousActivities(unittest.TestCase):
+    """Tests for the _detect_suspicious_activities method."""
+
+    def setUp(self):
+        self.analyzer = ForensicAnalyzer()
+
+    def test_external_connection_has_details_key(self):
+        """Test that external connection suspicious activities include a 'details' key."""
+        self.analyzer.results['processes'] = []
+        self.analyzer.results['network_connections'] = [
+            {
+                'local_addr': '192.168.1.10:12345',
+                'remote_addr': '8.8.8.8:443',
+                'status': 'ESTABLISHED',
+                'process': 'chrome.exe',
+                'pid': 999,
+                'type': 1,
+                'timestamp': '2026-01-01T00:00:00',
+            }
+        ]
+
+        self.analyzer._detect_suspicious_activities()
+
+        activities = self.analyzer.results['suspicious_activities']
+        self.assertEqual(len(activities), 1)
+        self.assertIn('details', activities[0])
+        self.assertEqual(activities[0]['type'], 'Conexión Externa')
+        self.assertEqual(activities[0]['severity'], 'MEDIUM')
+
+    def test_suspicious_process_has_details_key(self):
+        """Test that suspicious process activities include a 'details' key."""
+        self.analyzer.results['processes'] = [
+            {
+                'name': 'mimikatz',
+                'suspicious': True,
+                'reasons': ['Nombre de proceso conocido como malware'],
+            }
+        ]
+        self.analyzer.results['network_connections'] = []
+
+        self.analyzer._detect_suspicious_activities()
+
+        activities = self.analyzer.results['suspicious_activities']
+        self.assertEqual(len(activities), 1)
+        self.assertIn('details', activities[0])
+        self.assertEqual(activities[0]['type'], 'Proceso Sospechoso')
+        self.assertEqual(activities[0]['severity'], 'HIGH')
+
+
 class TestImportsAndSetup(unittest.TestCase):
     """Tests to verify module setup and imports."""
 

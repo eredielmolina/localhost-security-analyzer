@@ -405,6 +405,7 @@ class ForensicAnalyzer(QThread):
             if any(keyword in cmdline_lower for keyword in sensitive_keywords):
                 risks.append({
                     'type': 'Acceso a Información Sensible',
+                    'target': f"{proc_info['name']} (PID: {proc_info['pid']})",
                     'process': proc_info['name'],
                     'pid': proc_info['pid'],
                     'risk_level': 'HIGH',
@@ -796,7 +797,7 @@ class SecurityAnalyzerGUI(QMainWindow):
         if self.analysis_results['exfiltration_risks']:
             summary_text += f"\n⚠️  RIESGOS DE EXFILTRACIÓN: {len(self.analysis_results['exfiltration_risks'])} riesgo(s)\n"
             for risk in self.analysis_results['exfiltration_risks'][:3]:
-                summary_text += f"   • {risk['type']}: {risk['target']}\n"
+                summary_text += f"   • {risk['type']}: {risk.get('target', 'N/A')}\n"
         
         # Resumen de análisis forense de aplicaciones
         app_forensics = self.analysis_results.get('app_forensics', [])
@@ -1001,7 +1002,7 @@ class SecurityAnalyzerGUI(QMainWindow):
             self.exfil_table.setItem(row, 0, item)
             
             # Objetivo
-            item = QTableWidgetItem(risk['target'])
+            item = QTableWidgetItem(risk.get('target', 'N/A'))
             item.setBackground(QColor(255, 150, 100))
             self.exfil_table.setItem(row, 1, item)
             
@@ -1212,7 +1213,7 @@ Total de indicadores detectados: {len(self.analysis_results['malware_indicators'
         if self.analysis_results['exfiltration_risks']:
             for risk in self.analysis_results['exfiltration_risks']:
                 report += f"\n[{risk['risk_level']}] {risk['type']}\n"
-                report += f"  Destino: {risk['target']}\n"
+                report += f"  Destino: {risk.get('target', 'N/A')}\n"
                 report += f"  Proceso: {risk.get('process', 'N/A')}\n"
                 report += f"  Detalles: {risk.get('details', 'N/A')}\n"
         else:

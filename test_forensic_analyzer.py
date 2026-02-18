@@ -408,5 +408,86 @@ class TestImportsAndSetup(unittest.TestCase):
         self.assertTrue(hasattr(localhost_security_analyzer, 'logger'))
 
 
+class TestAnalyzeExfiltrationRisks(unittest.TestCase):
+    """Tests for the _analyze_exfiltration_risks method."""
+
+    def setUp(self):
+        self.analyzer = ForensicAnalyzer()
+
+    def test_exfiltration_potential_risk_has_target_key(self):
+        """Test that 'Exfiltración Potencial' risks include a 'target' key."""
+        self.analyzer.results['processes'] = []
+        self.analyzer.results['network_connections'] = [
+            {
+                'local_addr': '192.168.1.10:12345',
+                'remote_addr': '1.2.3.4:443',
+                'status': 'ESTABLISHED',
+                'process': 'test.exe',
+                'pid': 1234,
+                'type': 1,
+            }
+        ]
+
+        self.analyzer._analyze_exfiltration_risks()
+
+        risks = self.analyzer.results['exfiltration_risks']
+        self.assertEqual(len(risks), 1)
+        self.assertIn('target', risks[0])
+        self.assertEqual(risks[0]['type'], 'Exfiltración Potencial')
+        self.assertEqual(risks[0]['target'], '1.2.3.4:443')
+
+    def test_sensitive_access_risk_has_target_key(self):
+        """Test that 'Acceso a Información Sensible' risks include a 'target' key."""
+        self.analyzer.results['processes'] = [
+            {
+                'name': 'suspicious.exe',
+                'pid': 5678,
+                'cmdline': 'suspicious.exe --password=secret',
+            }
+        ]
+        self.analyzer.results['network_connections'] = []
+
+        self.analyzer._analyze_exfiltration_risks()
+
+        risks = self.analyzer.results['exfiltration_risks']
+        self.assertEqual(len(risks), 1)
+        self.assertIn('target', risks[0])
+        self.assertEqual(risks[0]['type'], 'Acceso a Información Sensible')
+        self.assertEqual(risks[0]['target'], 'suspicious.exe (PID: 5678)')
+        self.assertEqual(risks[0]['process'], 'suspicious.exe')
+        self.assertEqual(risks[0]['pid'], 5678)
+
+    def test_both_risk_types_have_target_key(self):
+        """Test that both risk types include a 'target' key."""
+        self.analyzer.results['processes'] = [
+            {
+                'name': 'malware.exe',
+                'pid': 999,
+                'cmdline': 'malware.exe --credential=steal',
+            }
+        ]
+        self.analyzer.results['network_connections'] = [
+            {
+                'local_addr': '10.0.0.1:8080',
+                'remote_addr': '8.8.8.8:53',
+                'status': 'ESTABLISHED',
+                'process': 'chrome.exe',
+                'pid': 2000,
+                'type': 1,
+            }
+        ]
+
+        self.analyzer._analyze_exfiltration_risks()
+
+        risks = self.analyzer.results['exfiltration_risks']
+        self.assertEqual(len(risks), 2)
+        
+        # Check all risks have 'target' key
+        for risk in risks:
+            self.assertIn('target', risk)
+            self.assertIn('type', risk)
+            self.assertIn('risk_level', risk)
+
+
 if __name__ == '__main__':
     unittest.main()

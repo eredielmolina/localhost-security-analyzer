@@ -3,14 +3,10 @@ import json
 import socket
 import subprocess
 import psutil
-import threading
 import hashlib
 import os
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from collections import defaultdict
-import re
-import time
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QPushButton,
@@ -20,9 +16,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtChart import QChart, QChartView, QPieSeries, QPieSlice
-import threading
-import requests
-from urllib.parse import urlparse
 
 class ForensicAnalyzer(QThread):
     """Analizador forense digital avanzado"""
@@ -118,7 +111,7 @@ class ForensicAnalyzer(QThread):
                     state = conn.status
                     try:
                         service = socket.getservbyport(port_num)
-                    except:
+                    except OSError:
                         service = "Unknown"
                     
                     port_info = {
@@ -186,7 +179,7 @@ class ForensicAnalyzer(QThread):
                     try:
                         proc = psutil.Process(conn.pid) if conn.pid else None
                         proc_name = proc.name() if proc else 'Unknown'
-                    except:
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
                         proc_name = 'Unknown'
                     
                     conn_info = {
@@ -1224,7 +1217,7 @@ Total de indicadores detectados: {len(self.analysis_results['malware_indicators'
             else:
                 report += f"  Detalles: {activity['details']}\n"
         
-        report += f"\n\n═���═════════════════════════════════════════════════════════\n"
+        report += f"\n\n═══════════════════════════════════════════════════════════\n"
         report += f"🔐 INTEGRIDAD DE ARCHIVOS CRÍTICOS\n"
         report += f"═══════════════════════════════════════════════════════════\n"
         

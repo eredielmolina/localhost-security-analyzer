@@ -25,6 +25,16 @@ Herramienta profesional de análisis forense digital para Windows, diseñada par
 - **Acceso a Datos Sensibles**: Monitorea acceso a archivos críticos
 - **Análisis de Procesos Maliciosos**: Detecta procesos comunicándose con exterior
 
+### 🔬 Análisis Forense de Aplicaciones
+- **Examen Profundo**: Inspección forense detallada de cada aplicación en ejecución
+- **Módulos Cargados**: Identifica todas las librerías y dependencias de cada proceso
+- **Archivos Abiertos**: Lista los archivos que cada aplicación tiene abiertos
+- **Conexiones por Proceso**: Analiza las conexiones de red individuales de cada aplicación
+- **Información del Ejecutable**: Tamaño, hash SHA256, fechas de creación y modificación
+- **Procesos Hijos**: Detecta la jerarquía de procesos padre-hijo
+- **Uso de Recursos**: Memoria RSS/VMS, CPU y número de hilos por aplicación
+- **Evaluación de Riesgo**: Puntuación de riesgo (0-100) con clasificación automática (CRITICAL/HIGH/MEDIUM/LOW)
+
 ### 📊 Reportes y Exportación
 - **Resumen Ejecutivo**: Análisis de alto nivel con recomendaciones
 - **Reportes Detallados**: Información forense completa

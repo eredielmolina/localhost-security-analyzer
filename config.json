@@ -24,5 +24,16 @@
     "check_external_connections": true,
     "check_uncommon_ports": true,
     "max_connections_to_analyze": 1000
+  },
+  "forensic_analysis": {
+    "enabled": true,
+    "analyze_loaded_modules": true,
+    "analyze_open_files": true,
+    "analyze_network_per_process": true,
+    "analyze_child_processes": true,
+    "hash_executables": true,
+    "max_modules_per_process": 50,
+    "max_open_files_per_process": 30,
+    "max_connections_per_process": 20
   }
 }

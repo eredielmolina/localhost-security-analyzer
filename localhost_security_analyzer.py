@@ -42,6 +42,7 @@ class ForensicAnalyzer(QThread):
             'dns_queries': [],
             'malware_indicators': [],
             'exfiltration_risks': [],
+            'app_forensics': [],
             'summary': {}
         }
         self.malware_signatures = self._load_malware_signatures()
@@ -95,6 +96,9 @@ class ForensicAnalyzer(QThread):
             
             self.progress.emit("📤 Analizando riesgos de exfiltración...")
             self._analyze_exfiltration_risks()
+            
+            self.progress.emit("🔬 Análisis forense de aplicaciones...")
+            self._analyze_applications_forensic()
             
             self.progress.emit("✅ Análisis completado")
             self.finished.emit(self.results)
@@ -402,6 +406,168 @@ class ForensicAnalyzer(QThread):
         
         self.results['exfiltration_risks'] = risks
     
+    def _analyze_applications_forensic(self):
+        """Análisis forense profundo de cada aplicación en ejecución"""
+        app_analysis = []
+        analyzed_exes = set()
+        
+        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'cwd',
+                                          'username', 'status', 'create_time',
+                                          'cpu_percent', 'memory_info',
+                                          'num_threads']):
+            try:
+                pinfo = proc.info
+                exe_path = pinfo.get('exe') or ''
+                
+                # Evitar analizar el mismo ejecutable varias veces
+                if exe_path and exe_path in analyzed_exes:
+                    continue
+                if exe_path:
+                    analyzed_exes.add(exe_path)
+                
+                # Información básica del proceso
+                app_entry = {
+                    'pid': pinfo['pid'],
+                    'name': pinfo.get('name', 'Unknown'),
+                    'exe_path': exe_path or 'N/A',
+                    'cmdline': ' '.join(pinfo.get('cmdline') or []) or 'N/A',
+                    'cwd': pinfo.get('cwd') or 'N/A',
+                    'username': pinfo.get('username') or 'N/A',
+                    'status': pinfo.get('status', 'N/A'),
+                    'create_time': datetime.fromtimestamp(
+                        pinfo['create_time']).isoformat() if pinfo.get('create_time') else 'N/A',
+                    'cpu_percent': pinfo.get('cpu_percent', 0),
+                    'num_threads': pinfo.get('num_threads', 0),
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                # Información de memoria
+                mem = pinfo.get('memory_info')
+                if mem:
+                    app_entry['memory'] = {
+                        'rss': mem.rss,
+                        'vms': mem.vms,
+                        'rss_mb': round(mem.rss / (1024 * 1024), 2),
+                        'vms_mb': round(mem.vms / (1024 * 1024), 2)
+                    }
+                else:
+                    app_entry['memory'] = {'rss': 0, 'vms': 0, 'rss_mb': 0, 'vms_mb': 0}
+                
+                # Módulos/librerías cargadas
+                try:
+                    memory_maps = proc.memory_maps(grouped=True)
+                    app_entry['loaded_modules'] = [
+                        m.path for m in memory_maps if hasattr(m, 'path') and m.path
+                    ][:50]
+                except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
+                    app_entry['loaded_modules'] = []
+                
+                # Archivos abiertos
+                try:
+                    open_files = proc.open_files()
+                    app_entry['open_files'] = [
+                        f.path for f in open_files
+                    ][:30]
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    app_entry['open_files'] = []
+                
+                # Conexiones de red del proceso
+                try:
+                    connections = proc.net_connections()
+                    app_entry['network_connections'] = [
+                        {
+                            'local': f"{c.laddr.ip}:{c.laddr.port}" if c.laddr else 'N/A',
+                            'remote': f"{c.raddr.ip}:{c.raddr.port}" if c.raddr else 'N/A',
+                            'status': c.status
+                        }
+                        for c in connections
+                    ][:20]
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    app_entry['network_connections'] = []
+                
+                # Procesos hijos
+                try:
+                    children = proc.children(recursive=False)
+                    app_entry['children'] = [
+                        {'pid': c.pid, 'name': c.name()}
+                        for c in children
+                    ]
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    app_entry['children'] = []
+                
+                # Información del ejecutable
+                app_entry['file_info'] = {}
+                if exe_path and os.path.isfile(exe_path):
+                    try:
+                        stat = os.stat(exe_path)
+                        app_entry['file_info'] = {
+                            'size_bytes': stat.st_size,
+                            'size_mb': round(stat.st_size / (1024 * 1024), 2),
+                            'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            'created': datetime.fromtimestamp(stat.st_ctime).isoformat()
+                        }
+                        # Hash del ejecutable
+                        try:
+                            app_entry['file_info']['sha256'] = self._calculate_hash(
+                                exe_path, 'sha256')
+                        except Exception:
+                            app_entry['file_info']['sha256'] = 'N/A'
+                    except Exception:
+                        pass
+                
+                # Evaluación de riesgo
+                risk_score = 0
+                risk_reasons = []
+                
+                name_lower = (pinfo.get('name') or '').lower()
+                if any(mal in name_lower for mal in self.known_malware_processes):
+                    risk_score += 40
+                    risk_reasons.append("Nombre asociado a herramientas de hacking")
+                
+                for malware_type, sigs in self.malware_signatures.items():
+                    if any(sig in name_lower for sig in sigs):
+                        risk_score += 50
+                        risk_reasons.append(f"Firma de malware: {malware_type}")
+                
+                if exe_path:
+                    exe_lower = exe_path.lower()
+                    temp_dirs = ['temp', 'tmp', 'appdata\\local\\temp',
+                                 '/tmp', '/var/tmp']
+                    if any(t in exe_lower for t in temp_dirs):
+                        risk_score += 30
+                        risk_reasons.append("Ejecutable en directorio temporal")
+                
+                ext_conns = [c for c in app_entry['network_connections']
+                             if c['remote'] != 'N/A'
+                             and not any(c['remote'].startswith(r)
+                                         for r in ['127.', '192.168.', '10.', '172.'])]
+                if ext_conns:
+                    risk_score += 15
+                    risk_reasons.append(
+                        f"{len(ext_conns)} conexión(es) externa(s) activa(s)")
+                
+                if app_entry['num_threads'] and app_entry['num_threads'] > 100:
+                    risk_score += 10
+                    risk_reasons.append(
+                        f"Alto número de hilos: {app_entry['num_threads']}")
+                
+                app_entry['risk_assessment'] = {
+                    'score': min(risk_score, 100),
+                    'level': ('CRITICAL' if risk_score >= 70
+                              else 'HIGH' if risk_score >= 40
+                              else 'MEDIUM' if risk_score >= 20
+                              else 'LOW'),
+                    'reasons': risk_reasons
+                }
+                
+                app_analysis.append(app_entry)
+                
+            except (psutil.NoSuchProcess, psutil.AccessDenied,
+                    psutil.ZombieProcess):
+                continue
+        
+        self.results['app_forensics'] = app_analysis
+    
     def export_report(self, filepath):
         """Exporta reporte en JSON"""
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -519,7 +685,12 @@ class SecurityAnalyzerGUI(QMainWindow):
         self.dns_table.setHorizontalHeaderLabels(['Dominio/IP', 'Tipo'])
         self.tabs.addTab(self.dns_table, "🌐 DNS")
         
-        # Tab 11: Reporte Detallado
+        # Tab 11: Análisis Forense de Aplicaciones
+        self.app_forensics_tab = QTextEdit()
+        self.app_forensics_tab.setReadOnly(True)
+        self.tabs.addTab(self.app_forensics_tab, "🔬 Análisis Forense Apps")
+        
+        # Tab 12: Reporte Detallado
         self.detailed_report = QTextEdit()
         self.detailed_report.setReadOnly(True)
         self.tabs.addTab(self.detailed_report, "📄 Reporte Detallado")
@@ -579,6 +750,9 @@ class SecurityAnalyzerGUI(QMainWindow):
         # Mostrar DNS
         self._display_dns()
         
+        # Mostrar análisis forense de aplicaciones
+        self._display_app_forensics()
+        
         # Mostrar reporte detallado
         self._display_detailed_report()
         
@@ -601,6 +775,7 @@ class SecurityAnalyzerGUI(QMainWindow):
 ✓ Actividades Sospechosas: {len(self.analysis_results['suspicious_activities'])}
 ✓ Indicadores de Malware: {len(self.analysis_results['malware_indicators'])}
 ✓ Riesgos de Exfiltración: {len(self.analysis_results['exfiltration_risks'])}
+✓ Aplicaciones Analizadas (Forense): {len(self.analysis_results.get('app_forensics', []))}
 
 🚨 HALLAZGOS CRÍTICOS:
 ─────────────────────────────────────────────────────────────"""
@@ -615,7 +790,15 @@ class SecurityAnalyzerGUI(QMainWindow):
             for risk in self.analysis_results['exfiltration_risks'][:3]:
                 summary_text += f"   • {risk['type']}: {risk['target']}\n"
         
-        if not self.analysis_results['malware_indicators'] and not self.analysis_results['exfiltration_risks']:
+        # Resumen de análisis forense de aplicaciones
+        app_forensics = self.analysis_results.get('app_forensics', [])
+        critical_apps = [a for a in app_forensics if a['risk_assessment']['level'] in ('CRITICAL', 'HIGH')]
+        if critical_apps:
+            summary_text += f"\n🔬 APLICACIONES DE RIESGO ALTO/CRÍTICO: {len(critical_apps)} aplicación(es)\n"
+            for app in critical_apps[:3]:
+                summary_text += f"   • {app['name']} (PID {app['pid']}): {app['risk_assessment']['level']}\n"
+        
+        if not self.analysis_results['malware_indicators'] and not self.analysis_results['exfiltration_risks'] and not critical_apps:
             summary_text += "\n✅ No se detectaron indicadores críticos de malware o exfiltración\n"
         
         summary_text += "\n\n📌 RECOMENDACIONES:\n─────────────────────────────────────────────────────────────\n"
@@ -624,6 +807,7 @@ class SecurityAnalyzerGUI(QMainWindow):
         summary_text += "3. Verificar la integridad de archivos críticos del sistema\n"
         summary_text += "4. Monitorear las queries DNS sospechosas\n"
         summary_text += "5. Considerar ejecutar escaneo antimalware adicional\n"
+        summary_text += "6. Revisar el análisis forense de aplicaciones para detalles profundos\n"
         
         self.summary_tab.setText(summary_text)
     
@@ -882,6 +1066,105 @@ class SecurityAnalyzerGUI(QMainWindow):
         
         self.dns_table.resizeColumnsToContents()
     
+    def _display_app_forensics(self):
+        """Muestra el análisis forense de aplicaciones"""
+        report = """
+╔════════════════════════════════════════════════════════════╗
+║       ANÁLISIS FORENSE DE APLICACIONES EN LOCALHOST        ║
+╚════════════════════════════════════════════════════════════╝
+"""
+        apps = self.analysis_results.get('app_forensics', [])
+        report += f"\n📊 Total de aplicaciones analizadas: {len(apps)}\n"
+        
+        # Resumen de riesgo
+        critical = [a for a in apps if a['risk_assessment']['level'] == 'CRITICAL']
+        high = [a for a in apps if a['risk_assessment']['level'] == 'HIGH']
+        medium = [a for a in apps if a['risk_assessment']['level'] == 'MEDIUM']
+        low = [a for a in apps if a['risk_assessment']['level'] == 'LOW']
+        
+        report += f"\n🔴 Riesgo CRÍTICO: {len(critical)}"
+        report += f"\n🟠 Riesgo ALTO: {len(high)}"
+        report += f"\n🟡 Riesgo MEDIO: {len(medium)}"
+        report += f"\n🟢 Riesgo BAJO: {len(low)}\n"
+        
+        # Ordenar por riesgo (mayor primero)
+        sorted_apps = sorted(apps, key=lambda x: x['risk_assessment']['score'],
+                             reverse=True)
+        
+        for app in sorted_apps:
+            risk = app['risk_assessment']
+            level_icon = {'CRITICAL': '🔴', 'HIGH': '🟠',
+                          'MEDIUM': '🟡', 'LOW': '🟢'}.get(risk['level'], '⚪')
+            
+            report += f"\n{'═' * 60}\n"
+            report += f"{level_icon} {app['name']} (PID: {app['pid']})\n"
+            report += f"{'─' * 60}\n"
+            
+            report += f"  📁 Ejecutable: {app['exe_path']}\n"
+            report += f"  📂 Directorio: {app['cwd']}\n"
+            report += f"  👤 Usuario: {app['username']}\n"
+            report += f"  📅 Inicio: {app['create_time']}\n"
+            report += f"  📊 Estado: {app['status']}\n"
+            report += f"  🧵 Hilos: {app['num_threads']}\n"
+            report += f"  💻 CPU: {app['cpu_percent']}%\n"
+            
+            mem = app.get('memory', {})
+            report += f"  🧠 Memoria RSS: {mem.get('rss_mb', 0)} MB\n"
+            report += f"  🧠 Memoria VMS: {mem.get('vms_mb', 0)} MB\n"
+            
+            report += f"  ⚖️ Riesgo: {risk['level']} ({risk['score']}/100)\n"
+            if risk['reasons']:
+                for reason in risk['reasons']:
+                    report += f"     ⚠️ {reason}\n"
+            
+            # Información del archivo ejecutable
+            finfo = app.get('file_info', {})
+            if finfo:
+                report += f"\n  📄 INFORMACIÓN DEL EJECUTABLE:\n"
+                if finfo.get('size_mb') is not None:
+                    report += f"     Tamaño: {finfo.get('size_mb', 'N/A')} MB\n"
+                if finfo.get('sha256'):
+                    report += f"     SHA256: {finfo['sha256']}\n"
+                if finfo.get('modified'):
+                    report += f"     Modificado: {finfo.get('modified', 'N/A')}\n"
+                if finfo.get('created'):
+                    report += f"     Creado: {finfo.get('created', 'N/A')}\n"
+            
+            # Línea de comandos
+            if app['cmdline'] != 'N/A':
+                report += f"\n  ⌨️ LÍNEA DE COMANDOS:\n"
+                report += f"     {app['cmdline'][:200]}\n"
+            
+            # Módulos cargados
+            if app.get('loaded_modules'):
+                report += f"\n  📦 MÓDULOS CARGADOS ({len(app['loaded_modules'])}):\n"
+                for mod in app['loaded_modules'][:10]:
+                    report += f"     • {mod}\n"
+                if len(app['loaded_modules']) > 10:
+                    report += f"     ... y {len(app['loaded_modules']) - 10} más\n"
+            
+            # Archivos abiertos
+            if app.get('open_files'):
+                report += f"\n  📂 ARCHIVOS ABIERTOS ({len(app['open_files'])}):\n"
+                for f in app['open_files'][:10]:
+                    report += f"     • {f}\n"
+                if len(app['open_files']) > 10:
+                    report += f"     ... y {len(app['open_files']) - 10} más\n"
+            
+            # Conexiones de red
+            if app.get('network_connections'):
+                report += f"\n  🌐 CONEXIONES DE RED ({len(app['network_connections'])}):\n"
+                for conn in app['network_connections'][:10]:
+                    report += f"     {conn['local']} → {conn['remote']} [{conn['status']}]\n"
+            
+            # Procesos hijos
+            if app.get('children'):
+                report += f"\n  👶 PROCESOS HIJOS ({len(app['children'])}):\n"
+                for child in app['children'][:10]:
+                    report += f"     • PID {child['pid']}: {child['name']}\n"
+        
+        self.app_forensics_tab.setText(report)
+    
     def _display_detailed_report(self):
         """Muestra el reporte detallado completo"""
         report = f"""
@@ -950,6 +1233,28 @@ Total de indicadores detectados: {len(self.analysis_results['malware_indicators'
             report += f"  MD5:    {file_hash['md5']}\n"
             report += f"  SHA256: {file_hash['sha256']}\n"
         
+        # Sección de análisis forense de aplicaciones
+        report += f"\n\n═══════════════════════════════════════════════════════════\n"
+        report += f"🔬 ANÁLISIS FORENSE DE APLICACIONES\n"
+        report += f"═══════════════════════════════════════════════════════════\n"
+        
+        app_forensics = self.analysis_results.get('app_forensics', [])
+        report += f"Total de aplicaciones analizadas: {len(app_forensics)}\n"
+        
+        critical_apps = [a for a in app_forensics
+                         if a['risk_assessment']['level'] in ('CRITICAL', 'HIGH')]
+        if critical_apps:
+            report += f"\n⚠️ Aplicaciones de riesgo alto/crítico:\n"
+            for app in critical_apps:
+                risk = app['risk_assessment']
+                report += f"\n  [{risk['level']}] {app['name']} (PID {app['pid']})\n"
+                report += f"    Ejecutable: {app['exe_path']}\n"
+                report += f"    Puntuación: {risk['score']}/100\n"
+                for reason in risk['reasons']:
+                    report += f"    ⚠️ {reason}\n"
+        else:
+            report += "\n✅ No se detectaron aplicaciones de riesgo alto o crítico\n"
+        
         self.detailed_report.setText(report)
     
     def export_report(self):
@@ -986,6 +1291,7 @@ Total de indicadores detectados: {len(self.analysis_results['malware_indicators'
         self.hashes_table.setRowCount(0)
         self.registry_table.setRowCount(0)
         self.dns_table.setRowCount(0)
+        self.app_forensics_tab.clear()
         self.detailed_report.clear()
         self.export_btn.setEnabled(False)
         self.progress_label.setText("Estado: Listo")

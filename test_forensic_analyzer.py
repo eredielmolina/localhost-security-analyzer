@@ -289,6 +289,75 @@ class TestAnalyzeApplicationsForensic(unittest.TestCase):
         self.assertGreaterEqual(app['risk_assessment']['score'], 10)
         self.assertTrue(any('hilos' in r for r in app['risk_assessment']['reasons']))
 
+    @patch('psutil.process_iter')
+    def test_file_info_os_error_handled(self, mock_process_iter):
+        """Test that OSError during file info collection is handled gracefully."""
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            'pid': 600,
+            'name': 'file_test',
+            'exe': '/nonexistent/path/file_test',
+            'cmdline': ['file_test'],
+            'cwd': '/',
+            'username': 'user',
+            'status': 'running',
+            'create_time': datetime.now().timestamp(),
+            'cpu_percent': 0,
+            'memory_info': MagicMock(rss=1024, vms=2048),
+            'num_threads': 1
+        }
+        mock_proc.memory_maps.return_value = []
+        mock_proc.open_files.return_value = []
+        mock_proc.net_connections.return_value = []
+        mock_proc.children.return_value = []
+
+        mock_process_iter.return_value = [mock_proc]
+
+        self.analyzer._analyze_applications_forensic()
+
+        app = self.analyzer.results['app_forensics'][0]
+        # file_info should be empty dict when exe doesn't exist
+        self.assertEqual(app['file_info'], {})
+
+    @patch('psutil.process_iter')
+    def test_linux_temp_directory_risk(self, mock_process_iter):
+        """Test that a process in /tmp gets higher risk (cross-platform)."""
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            'pid': 700,
+            'name': 'suspicious_linux',
+            'exe': '/tmp/suspicious_linux',
+            'cmdline': ['suspicious_linux'],
+            'cwd': '/tmp',
+            'username': 'user',
+            'status': 'running',
+            'create_time': datetime.now().timestamp(),
+            'cpu_percent': 0,
+            'memory_info': MagicMock(rss=1024, vms=2048),
+            'num_threads': 1
+        }
+        mock_proc.memory_maps.return_value = []
+        mock_proc.open_files.return_value = []
+        mock_proc.net_connections.return_value = []
+        mock_proc.children.return_value = []
+
+        mock_process_iter.return_value = [mock_proc]
+
+        self.analyzer._analyze_applications_forensic()
+
+        app = self.analyzer.results['app_forensics'][0]
+        self.assertGreaterEqual(app['risk_assessment']['score'], 30)
+        self.assertTrue(any('temporal' in r for r in app['risk_assessment']['reasons']))
+
+
+class TestImportsAndSetup(unittest.TestCase):
+    """Tests to verify module setup and imports."""
+
+    def test_logger_is_configured(self):
+        """Test that the module has a logger configured."""
+        import localhost_security_analyzer
+        self.assertTrue(hasattr(localhost_security_analyzer, 'logger'))
+
 
 if __name__ == '__main__':
     unittest.main()

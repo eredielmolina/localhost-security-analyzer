@@ -79,7 +79,7 @@ Activar el entorno virtual:
 ### Paso 3: Instalar las dependencias
 
 ```bash
-pip install psutil PyQt6 requests
+pip install -r requirements.txt
 ```
 
 ### Paso 4: Ejecutar la aplicación
@@ -100,13 +100,16 @@ El proyecto incluye un conjunto de pruebas unitarias para verificar el correcto 
 python -m unittest test_forensic_analyzer -v
 ```
 
-Resultado esperado: 9 tests pasando correctamente, incluyendo:
+Resultado esperado: 12 tests pasando correctamente, incluyendo:
 - Inicialización del analizador
 - Análisis forense básico
 - Evaluación de riesgo (bajo, alto, por directorio temporal, por hilos)
 - Cálculo de memoria
 - Deduplicación por ejecutable
 - Manejo de errores de acceso denegado
+- Detección de directorio temporal en Linux (/tmp)
+- Manejo de errores de lectura de archivos
+- Configuración del logger
 
 ## 📁 Estructura del Proyecto
 
@@ -115,6 +118,7 @@ localhost-security-analyzer/
 ├── localhost_security_analyzer.py   # Código principal (analizador + GUI)
 ├── test_forensic_analyzer.py        # Pruebas unitarias
 ├── config.json                      # Configuración del análisis
+├── requirements.txt                 # Dependencias del proyecto
 ├── SECURITY.md                      # Política de seguridad
 ├── .gitignore                       # Archivos ignorados por git
 └── README.md                        # Este archivo

@@ -1,21 +1,23 @@
 import sys
 import json
+import logging
 import socket
 import subprocess
 import psutil
 import hashlib
 import os
+import platform
 from datetime import datetime
 from collections import defaultdict
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit, QPushButton,
-    QProgressBar, QLabel, QFileDialog, QMessageBox, QInputDialog,
-    QComboBox, QSpinBox, QCheckBox, QDialog, QScrollArea
+    QProgressBar, QLabel, QFileDialog, QMessageBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QColor, QFont, QIcon
-from PyQt6.QtChart import QChart, QChartView, QPieSeries, QPieSlice
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtGui import QColor
+
+logger = logging.getLogger(__name__)
 
 class ForensicAnalyzer(QThread):
     """Analizador forense digital avanzado"""
@@ -145,7 +147,10 @@ class ForensicAnalyzer(QThread):
                         suspicious = True
                         suspicious_reason.append("Nombre de proceso conocido como malware")
                     
-                    if pinfo.get('exe', '').lower() in ['c:\\temp', 'c:\\windows\\temp', 'c:\\appdata\\local\\temp']:
+                    exe_lower = (pinfo.get('exe') or '').lower()
+                    temp_dirs = ['temp', 'tmp', 'appdata\\local\\temp',
+                                 '/tmp', '/var/tmp']
+                    if any(t in exe_lower for t in temp_dirs):
                         suspicious = True
                         suspicious_reason.append("Ejecutable en carpeta temporal")
                     
@@ -242,13 +247,22 @@ class ForensicAnalyzer(QThread):
     
     def _hash_critical_files(self):
         """Calcula hash de archivos críticos"""
-        critical_paths = [
-            'C:\\Windows\\System32\\cmd.exe',
-            'C:\\Windows\\System32\\powershell.exe',
-            'C:\\Windows\\System32\\services.exe',
-            'C:\\Windows\\System32\\svchost.exe',
-            'C:\\Windows\\System32\\registry.exe'
-        ]
+        if platform.system() == 'Windows':
+            critical_paths = [
+                'C:\\Windows\\System32\\cmd.exe',
+                'C:\\Windows\\System32\\powershell.exe',
+                'C:\\Windows\\System32\\services.exe',
+                'C:\\Windows\\System32\\svchost.exe',
+                'C:\\Windows\\System32\\registry.exe'
+            ]
+        else:
+            critical_paths = [
+                '/bin/sh',
+                '/bin/bash',
+                '/usr/bin/sudo',
+                '/usr/bin/passwd',
+                '/usr/sbin/sshd'
+            ]
         
         for path in critical_paths:
             if os.path.exists(path):
@@ -301,8 +315,8 @@ class ForensicAnalyzer(QThread):
                                     'entry': line.strip(),
                                     'timestamp': datetime.now().isoformat()
                                 })
-                except Exception as e:
-                    pass
+                except (subprocess.TimeoutExpired, OSError) as e:
+                    logger.debug("Error querying registry key %s: %s", key, e)
         except Exception as e:
             self.progress.emit(f"⚠️ Error analizando registro: {str(e)}")
     
@@ -503,10 +517,11 @@ class ForensicAnalyzer(QThread):
                         try:
                             app_entry['file_info']['sha256'] = self._calculate_hash(
                                 exe_path, 'sha256')
-                        except Exception:
+                        except OSError as e:
+                            logger.debug("Error hashing %s: %s", exe_path, e)
                             app_entry['file_info']['sha256'] = 'N/A'
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        logger.debug("Error reading file info for %s: %s", exe_path, e)
                 
                 # Evaluación de riesgo
                 risk_score = 0

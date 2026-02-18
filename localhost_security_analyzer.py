@@ -238,7 +238,7 @@ class ForensicAnalyzer(QThread):
                     suspicious.append({
                         'type': 'Conexión Externa',
                         'target': conn['remote_addr'],
-                        'process': conn['process'],
+                        'details': f"Proceso: {conn['process']}",
                         'severity': 'MEDIUM',
                         'timestamp': datetime.now().isoformat()
                     })
